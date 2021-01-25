@@ -1,16 +1,27 @@
 import Vue from 'vue'
 import Router from 'vue-router'
 import HelloWorld from '@/components/HelloWorld'
-import cesiumViewer from '@/components/cesiumViewer'
+import GlslCanvas from '@/components/GlslCanvas'
+import CesiumViewer from '@/components/CesiumViewer'
 
 Vue.use(Router)
 
 export default new Router({
   routes: [
     {
-      path: '/',
-      name: 'cesiumViewer',
-      component: cesiumViewer
+      path: '/CesiumViewer',
+      name: 'CesiumViewer',
+      component: CesiumViewer
+    },
+    {
+      path: '/HelloWorld',
+      name: 'HelloWorld',
+      component: HelloWorld
+    },
+    {
+      path: '/GlslCanvas',
+      name: 'GlslCanvas',
+      component: GlslCanvas
     },
   ]
 })

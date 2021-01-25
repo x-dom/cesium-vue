@@ -1,14 +1,16 @@
 <template>
   <div id="app">
-    <cesiumViewer></cesiumViewer>
+    <!-- <cesiumViewer></cesiumViewer> -->
     <!-- <helloWorld></helloWorld> -->
+    <glslCanvas></glslCanvas>
       <!-- <h1>{{$store.state.moduleUser.language}}</h1> -->
   </div>
 </template>
 
 <script>
-import cesiumViewer from './components/cesiumViewer'
+import cesiumViewer from './components/CesiumViewer'
 import helloWorld from './components/HelloWorld'
+import glslCanvas from './components/GlslCanvas'
 export default {
   name: 'App',
   
@@ -16,6 +18,7 @@ export default {
   components: {
     "cesiumViewer": cesiumViewer,
     "helloWorld": helloWorld,
+    "glslCanvas": glslCanvas,
   }
 }
 </script>
