@@ -1,7 +1,9 @@
 import 'cesium/Widgets/widgets.css';
-// import Cesium from 'cesium/Cesium';
-const Cesium =  require('cesium/Cesium');
+import Event from './event/Event'
 
+const Cesium =  require('cesium/Cesium');
+// const Cesium =  require('../../../static/cesium/Cesium');
+window.Cesium = Cesium;
 /**
  * Cesium 二次封装
  * @author xiaoshuai
@@ -18,20 +20,32 @@ export default class MyCesium {
                 options[args[i]] = false;
             }
         }
-        
+        options['scene3DOnly'] = true;
+        // options['requestRenderMode'] = true;
+
         if(!options.map_server || options.map_server.length==0){
             options.map_server = [
+                // {
+                //     type: 'XYZ',
+                //     // url:'http://www.google.cn/maps/vt?lyrs=s@800&x={x}&y={y}&z={z}',  
+                //     url:'http://t{s}.tianditu.gov.cn/img_c/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={x}&TILECOL={y}&tk=d42fd762c9bb221d415d6d7eb6921f29',  
+                //     value: ['0', '1', '2', '3', '4', '5', '6', '7'],
+                //     minimumLevel:1,
+                //     maximumLevel:20
+                // },
+                // {
+                //     type: 'XYZ',
+                //     url:'http://t{s}.tianditu.gov.cn/DataServer?T=cva_w&x={x}&y={y}&l={z}&tk=d42fd762c9bb221d415d6d7eb6921f29',  
+                //     value: ['0', '1', '2', '3', '4', '5', '6', '7'],
+                //     minimumLevel:1,
+                //     maximumLevel:20
+                // },
                 {
                     type: 'XYZ',
-                    url:'http://www.google.cn/maps/vt?lyrs=s@800&x={x}&y={y}&z={z}',  
-                    minimumLevel:1,
-                    maximumLevel:20
-                },
-                {
-                    type: 'XYZ',
-                    url:'http://t0.tianditu.gov.cn/DataServer?T=cva_w&x={x}&y={y}&l={z}&tk=d42fd762c9bb221d415d6d7eb6921f29',  
-                    minimumLevel:1,
-                    maximumLevel:20
+                    url: '//webrd{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+                    value: ['01', '02', '03', '04'],
+                    minimumLevel:3,
+                    maximumLevel:18
                 },
             ];
         } 
@@ -46,12 +60,15 @@ export default class MyCesium {
         });
 
         this.viewer = new Cesium.Viewer(container,options);
+        this.scene = this.viewer.scene;
+        this.camera = this.scene.camera;
 
         //其他默认图层
         options.map_server.forEach((item, index)=>{
             let layer = new Cesium.UrlTemplateImageryProvider({
                 tilingScheme:new Cesium.WebMercatorTilingScheme(),
                 url: item.url,
+                subdomains: item.value,
                 minimumLevel: item.minimumLevel||1,
                 maximumLevel: item.maximumLevel||18
             });
@@ -67,161 +84,213 @@ export default class MyCesium {
         //地形
         this.viewer.scene.globe.depthTestAgainstTerrain = true;
         //FPS
-        this.viewer.scene.debugShowFramesPerSecond = false;
+        this.viewer.scene.debugShowFramesPerSecond = true;
         //除版权信息
         this.viewer._cesiumWidget._creditContainer.style.display = "none";
         // 解决瓦片地图偏灰问题
-        this.viewer.scene.highDynamicRange = true;
+        this.viewer.scene.highDynamicRange = false;
         //底图默认暗色
-        this.viewer.imageryLayers.get(1).brightness = 0.2;
+        // this.viewer.imageryLayers.get(1).brightness = 0.2;
         //主页
         this.home = {};
-        this.home.duration = 1;
+        this.home.duration = 3;
         this.home.destination = new Cesium.Cartesian3(-2183422.4735995145, 4387771.231407312, 4068697.2591815153);
         this.home.orientation = {
             heading : 0.13331432556596035,
             pitch : -0.6460940450802517,
             roll : 0.0
         };
-    }
 
-    //初始化时钟
-    initClock(start, stop, animate){
-        let  viewer = this.viewer;
-        start = start || Cesium.JulianDate.fromDate(new Date());
-        stop = stop || Cesium.JulianDate.addDays(start, 1, new Cesium.JulianDate());
-        animate = animate==undefined?true:animate;
-        viewer.clock.startTime = start.clone();
-        viewer.clock.stopTime = stop.clone();
-        viewer.clock.currentTime = start.clone();
-        viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
-        viewer.clock.multiplier = 1;
-        viewer.clock.shouldAnimate = animate;
-    }
 
-    //回到主页
-    flyHome(destination, orientation, duration) {
-        this.home.duration = duration || this.home.duration;
-        this.home.destination = destination || this.home.destination;
-        this.home.orientation = orientation || this.home.orientation;
-        this.viewer.camera.flyTo({
-            destination: this.home.destination,
-            orientation: this.home.orientation,
-            duration: this.home.duration,
+        /*****************注册事件********************/
+        _this.eventObj = new Event();
+        
+        //渲染完成事件
+        _this.viewer.scene.postRender.addEventListener((evt) => {
+            _this.eventObj.emit("rendercomplete", evt);
         });
-    }
+        
+        let handler = new Cesium.ScreenSpaceEventHandler(_this.viewer.canvas);
 
-    /** 
-     * 飞行至指定的经纬度
-     * x: 经度
-     * y: 纬度
-     * pitch 俯仰角（-90~90），默认-90，-90为相机看向正下方，90为相机看向正上方，可选
-     * distance 相机与目标的距离(单位米)，默认500，可选
-     * duration 飞行时间，单位秒，默认飞行3秒，可选
-     * */
-    fly2Point(x, y, pitch, distance, duration) {//点位置 + 俯仰角 + 时间
-        let X = x ? x : 0;
-        let Y = y ? y : 0;
-        if (x == 0) {
-            return
-        }
-        let viewer = this.viewer;
-        let Pitch = pitch ? pitch : -45;
-        let Distance = distance ? distance : 1000;
-        let Duration = duration ? duration : 3;
-        let entity = viewer.entities.getById("flyTmp");
-        if (Cesium.defined(entity)) {
-            viewer.entities.remove(entity);
-        }
-        entity = viewer.entities.add({
-            id: 'flyTmp',
-            position: Cesium.Cartesian3.fromDegrees(X, Y),
-            point: {
-                pixelSize: 0,
-                color: Cesium.Color.WHITE.withAlpha(1),
-                outlineColor: Cesium.Color.WHITE.withAlpha(0),
-                outlineWidth: 0
-            }
-        });
-        viewer.flyTo(entity, {
-            duration: Duration,
-            offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(Pitch), Distance)
-        });
-    }
+        //单击事件
+        handler.setInputAction((evt) => {
+            _this.eventObj.emit("click", evt);
+        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+        
+        //双击事件
+        handler.setInputAction((evt) => {
+            _this.eventObj.emit("dblclick", evt);
+        }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
-    /**
-     * 围绕中心点旋转
-     * x: 经度
-     * y: 纬度
-     * period: 旋转时长，单位：秒
-     * pitch 俯仰角（-90~90），默认-90，-90为相机看向正下方，默认值为 -30 度
-     * speed: 每秒飞行速度（单位：度/秒），默认值为 2 度
-     * distance 相机与目标的距离(单位：米)，默认值为 5000 米
-     * */
-    lookAround(x, y, period, pitch, speed, distance) {
-        // 相机看点的角度，如果大于0那么则是从地底往上看，所以要为负值，这里取-30 度
-        let viewer = this.viewer;
-        let Pitch = Cesium.Math.toRadians(pitch ? pitch : -30);
-        // 每秒转动度数
-        let angle = speed ? speed : 2;
-        // 给定相机距离点多少距离飞行，这里取值为5000m
-        let dis = distance ? distance : 5000;
-        let startTime = Cesium.JulianDate.fromDate(new Date());
-        let stopTime = Cesium.JulianDate.addSeconds(
-            startTime,
-            period,
-            new Cesium.JulianDate()
-        );
-        viewer.clock.startTime = startTime.clone(); // 开始时间
-        viewer.clock.stopTime = stopTime.clone(); // 结速时间
-        viewer.clock.currentTime = startTime.clone(); // 当前时间
-        viewer.clock.clockRange = Cesium.ClockRange.CLAMPED; // 行为方式
-        viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK; // 时钟设置为当前系统时间; 忽略所有其他设置。
-        // 相机的当前 heading
-        let initialHeading = viewer.camera.heading;
-        let Exection = function TimeExecution() {
-            // 当前已经过去的时间，单位s
-            let delTime = Cesium.JulianDate.secondsDifference(
-                viewer.clock.currentTime,
-                viewer.clock.startTime
-            );
-            let heading = Cesium.Math.toRadians(delTime * angle) + initialHeading;
-            viewer.scene.camera.setView({
-                destination: Cesium.Cartesian3.fromDegrees(x, y), // 点的坐标
-                orientation: {
-                    heading: heading,
-                    pitch: Pitch
+        //鼠标移动事件
+        let lastFrameTime =  Date.now();
+        handler.setInputAction((evt) => {
+                let targetFrameRate = _this.viewer.cesiumWidget._targetFrameRate;
+                targetFrameRate = !Cesium.defined(targetFrameRate)?10:targetFrameRate;
+                targetFrameRate = 30;
+                let frameTime = Date.now();
+                let interval = 1000.0 / targetFrameRate;
+                let delta = frameTime - lastFrameTime;
+                if (delta > interval) {
+                    lastFrameTime = frameTime;
+                    _this.eventObj.emit("mousemove", evt);
                 }
-            });
-            viewer.scene.camera.moveBackward(dis);
-            if (
-                Cesium.JulianDate.compare(
-                    viewer.clock.currentTime,
-                    viewer.clock.stopTime
-                ) >= 0
-            ) {
-                viewer.clock.onTick.removeEventListener(Exection);
-            }
-        };
-        viewer.clock.onTick.addEventListener(Exection);
+        }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
     }
-
-    // 注销中心点旋转
-    removeLookAround() {
-        let viewer = this.viewer;
-        viewer.clock.onTick._listeners.forEach(item => { viewer.clock.onTick.removeEventListener(item) })
-    }
-    
 }
 
-//加载三维图层
-MyCesium.prototype.loadTileset = function(url,show){
+/**
+ * 初始化时钟
+ * @param { 开始时间 } start
+ * @param { 结束时间 } stop
+ * @param { 动画状态 } status
+ */
+MyCesium.prototype.initClock = function(start, stop, status) {
+    let  viewer = this.viewer;
+    start = start || Cesium.JulianDate.fromDate(new Date());
+    stop = stop || Cesium.JulianDate.addDays(start, 1, new Cesium.JulianDate());
+    status = status==undefined?true:status;
+    viewer.clock.startTime = start.clone();
+    viewer.clock.stopTime = stop.clone();
+    viewer.clock.currentTime = start.clone();
+    viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+    viewer.clock.multiplier = 1;
+    viewer.clock.shouldAnimate = status;
+}
+
+/**
+ * 回到关注点
+ * @param { 目的地 } destination 
+ * @param { 方向} orientation 
+ * @param { 持续时间 } duration 
+ */
+MyCesium.prototype.flyHome = function(destination, orientation, duration) {
+    this.home.duration = duration || this.home.duration;
+    this.home.destination = destination || this.home.destination;
+    this.home.orientation = orientation || this.home.orientation;
+    this.viewer.camera.flyTo({
+        destination: this.home.destination,
+        orientation: this.home.orientation,
+        duration: this.home.duration,
+    });
+}
+
+/**
+ * 飞行至指定的经纬度
+ * @param { 经度 } longitude 
+ * @param { 纬度 } latitude
+ * @param { 俯仰角 } pitch //-90~90，默认-90，-90为相机看向正下方，90为相机看向正上方，可选
+ * @param { 相机与目标的距离 } distance //单位米，默认500，可选
+ * @param { 飞行时间 } duration //单位秒，默认飞行3秒，可选
+ */
+MyCesium.prototype.fly2Point = function(longitude, latitude, pitch, distance, duration) {//点位置 + 俯仰角 + 时间
+    longitude = longitude ? longitude : 0;
+    latitude = latitude ? latitude : 0;
+
+    let viewer = this.viewer;
+    let Pitch = pitch ? pitch : -45;
+    let Distance = distance ? distance : 1000;
+    let Duration = duration ? duration : 3;
+    let entity = viewer.entities.getById("flyTmp");
+    if (Cesium.defined(entity)) {
+        viewer.entities.remove(entity);
+    }
+    entity = viewer.entities.add({
+        id: 'flyTmp',
+        position: Cesium.Cartesian3.fromDegrees(longitude, latitude),
+        point: {
+            pixelSize: 0,
+            color: Cesium.Color.WHITE.withAlpha(1),
+            outlineColor: Cesium.Color.WHITE.withAlpha(0),
+            outlineWidth: 0
+        }
+    });
+    viewer.flyTo(entity, {
+        duration: Duration,
+        offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(Pitch), Distance)
+    });
+}
+
+/**
+ * 围绕中心点旋转
+ * @param { 经度 } longitude 
+ * @param { 纬度 } latitude 
+ * @param { 旋转时长 } period //单位秒
+ * @param { 俯仰角 } pitch //-90~90，-90为相机看向正下方，默认值为 -30 度
+ * @param { 每秒飞行速度 } speed //单位度/秒，默认值2
+ * @param { 相机与目标的距离 } distance /单位米,默认值为5000
+ */
+MyCesium.prototype.lookAround = function(longitude, latitude, period, pitch, speed, distance) {
+    longitude = longitude ? longitude : 0;
+    latitude = latitude ? latitude : 0;
+
+    // 相机看点的角度，如果大于0那么则是从地底往上看，所以要为负值，这里取-30 度
+    let viewer = this.viewer;
+    let Pitch = Cesium.Math.toRadians(pitch ? pitch : -30);
+    // 每秒转动度数
+    let angle = speed ? speed : 2;
+    // 给定相机距离点多少距离飞行，这里取值为5000m
+    let dis = distance ? distance : 5000;
+    let startTime = Cesium.JulianDate.fromDate(new Date());
+    let stopTime = Cesium.JulianDate.addSeconds(
+        startTime,
+        period,
+        new Cesium.JulianDate()
+    );
+    viewer.clock.startTime = startTime.clone(); // 开始时间
+    viewer.clock.stopTime = stopTime.clone(); // 结速时间
+    viewer.clock.currentTime = startTime.clone(); // 当前时间
+    viewer.clock.clockRange = Cesium.ClockRange.CLAMPED; // 行为方式
+    viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK; // 时钟设置为当前系统时间; 忽略所有其他设置。
+    // 相机的当前 heading
+    let initialHeading = viewer.camera.heading;
+    let Exection = function TimeExecution() {
+        // 当前已经过去的时间，单位s
+        let delTime = Cesium.JulianDate.secondsDifference(
+            viewer.clock.currentTime,
+            viewer.clock.startTime
+        );
+        let heading = Cesium.Math.toRadians(delTime * angle) + initialHeading;
+        viewer.scene.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(longitude, latitude), 
+            orientation: {
+                heading: heading,
+                pitch: Pitch
+            }
+        });
+        viewer.scene.camera.moveBackward(dis);
+        if (
+            Cesium.JulianDate.compare(
+                viewer.clock.currentTime,
+                viewer.clock.stopTime
+            ) >= 0
+        ) {
+            viewer.clock.onTick.removeEventListener(Exection);
+        }
+    };
+    viewer.clock.onTick.addEventListener(Exection);
+}
+
+/**
+ * 注销中心点旋转
+ */
+MyCesium.prototype.removeLookAround = function() {
+    let viewer = this.viewer;
+    viewer.clock.onTick._listeners.forEach(item => { viewer.clock.onTick.removeEventListener(item) })
+}
+
+/**
+ * 加载三维瓦片集合
+ * @param { 瓦片路径 } url 
+ * @param { 默认是否显示 } show 
+ */
+MyCesium.prototype.load3DTileSet = function(url,show){
     var viewer = this.viewer;
     var color = `vec4(0.0, 0.5, 1.0,1)`;
     var tileset = viewer.scene.primitives.add(new Cesium.Cesium3DTileset({
         show: !!show,
         url: url,
-        maximumScreenSpaceError: 60,//减少细粒度元素渲染，优化渲染效率
+        // maximumScreenSpaceError: 60,//减少细粒度元素渲染，优化渲染效率
         shaderDebug: false,
         headVS: ` varying vec3 xs_positionMC;`,
         contentVS: ` xs_positionMC = a_position.xyz;`,
@@ -246,15 +315,25 @@ MyCesium.prototype.loadTileset = function(url,show){
     return tileset;
 };
 
-//加载geojson
-MyCesium.prototype.loadGeoJson = function(url,callBack){
+/**
+ * 加载GeoJson数据
+ * @param { 数据路径 } url 
+ * @param { 加载后返回结果 } callBack 
+ */
+MyCesium.prototype.loadGeoJson = function(url, callBack){
     var promise = Cesium.GeoJsonDataSource.load(url);
-    promise.then(function(dataSource){
-        callBack(dataSource);
+    promise.then((res) => {
+        callBack(res);
+    }).catch((e) => {
+        callBack([]);
+        console.error('加载数据异常',e)
     });
 };
 
-//屏幕坐标转世界坐标
+/**
+ * 屏幕坐标转世界坐标
+ * @param { 屏幕坐标 } pixel 
+ */
 MyCesium.prototype.pixelToWorld3D = function(pixel){
     var viewer = this.viewer;
     var pickRay = viewer.camera.getPickRay(pixel);
@@ -264,13 +343,23 @@ MyCesium.prototype.pixelToWorld3D = function(pixel){
     }
 };
 
-//屏幕坐标转经纬度坐标
+/**
+ * 屏幕坐标转经纬度坐标
+ * @param { 屏幕坐标 } pixel 
+ */
 MyCesium.prototype.pixelToWGS84 = function(pixel){
-    var cartesian3 = this.pixelToWorld3D(pixel);
-    return this.world3DToWGS84(cartesian3);
+    if(Cesium.defined(pixel)) {
+        pixel.x = Math.round(pixel.x);
+        pixel.y = Math.round(pixel.y);
+        var cartesian3 = this.pixelToWorld3D(pixel);
+        return this.world3DToWGS84(cartesian3);
+    } 
 };
 
-//世界坐标转经纬度坐标
+/**
+ * 世界坐标转经纬度坐标
+ * @param { 世界坐标 } cartesian3 
+ */
 MyCesium.prototype.world3DToWGS84 = function(cartesian3){
     if(Cesium.defined(cartesian3)){
         var cartographic = Cesium.Cartographic.fromCartesian(cartesian3);
@@ -278,15 +367,18 @@ MyCesium.prototype.world3DToWGS84 = function(cartesian3){
         var lng = Cesium.Math.toDegrees(cartographic.longitude);
         var height = cartographic.height.toFixed(2);
         
-        var coordinate = [lng, lat, height];
-        coordinate[0] = Number(coordinate[0]);
-        coordinate[1] = Number(coordinate[1]);
-        coordinate[2] = Number(coordinate[2]);
-        return coordinate;
+        lng = Number(Number(lng).toFixed(6));
+        lat = Number(Number(lat).toFixed(6));
+        height = Number(Number(height).toFixed(1));
+        return  [lng, lat, height];
     }
 };
 
-//添加信息提示框
+/**
+ * 添加信息提示框
+ * @param { 位置 } position 
+ * @param { 提示内容 } text 
+ */
 MyCesium.prototype.addTipInfoWindow = function(position, text){
     let options = {};
     options.viewPoint = position;
@@ -294,7 +386,13 @@ MyCesium.prototype.addTipInfoWindow = function(position, text){
     return new TipInfoWinPrimitive(this.viewer, options);
 }
 
-//添加基础信息提示框
+/**
+ * 添加基础信息提示框
+ * @param { 位置 } position 
+ * @param { 标题 } title 
+ * @param { 内容 } content 
+ * @param { 关闭事件 } onClose 
+ */
 MyCesium.prototype.addBaseInfoWindow = function(position, title,content, onClose) {
     let options = {};
     options.viewPoint = position;
@@ -305,8 +403,11 @@ MyCesium.prototype.addBaseInfoWindow = function(position, title,content, onClose
 }
 
 
-//加载资源管理器
-MyCesium.prototype.loadSourceManager = function(sources){
+/**
+ * 加载资源管理器
+ * @param { 地图资源数组 } sources 
+ */
+MyCesium.prototype.loadMapSources = function(sources){
     var container = this.viewer.container;
     // var ele container.getElementsByClassName("cesium-select-control");
     /*
@@ -398,8 +499,11 @@ MyCesium.prototype.loadSourceManager = function(sources){
     return selectControl;
 };
 
-//图例
-MyCesium.prototype.loadLegendManager = function(legendSources) {
+/**
+ * 加载地图图例
+ * @param { 地图图例数组 } legendSources 
+ */
+MyCesium.prototype.loadMapLegend = function(legendSources) {
     let container = this.viewer.container;
     $(container).find('#crsium-legend-container').remove();
     // let legendSources = [
@@ -503,16 +607,30 @@ MyCesium.prototype.loadLegendManager = function(legendSources) {
     });
 };
 
-//两世界坐标点间抛物线方程
-MyCesium.prototype.parabolaEquationByWorld3D = function (point1, point2, height, extrudedHeight, num) {
-    var coordinate1 = this.world3DToWGS84(point1);
-    var coordinate2 = this.world3DToWGS84(point2);
+/**
+ * 两世界坐标点间抛物线方程
+ * @param { 坐标1 } cartesian1 
+ * @param { 坐标2 } cartesian2 
+ * @param { 高度 } height 
+ * @param { 起始高度 } extrudedHeight 
+ * @param { 线性点数 } num 
+ */
+MyCesium.prototype.parabolaEquationByWorld3D = function (cartesian1, cartesian2, height, extrudedHeight, num) {
+    var coordinate1 = this.world3DToWGS84(cartesian1);
+    var coordinate2 = this.world3DToWGS84(cartesian2);
     if(coordinate1 && coordinate2) {
         return this.parabolaEquationByWGS84(coordinate1, coordinate2, height, extrudedHeight, num);
     }
 };
 
-//两经纬度点间抛物线方程
+/**
+ * 两经纬度点间抛物线方程
+ * @param { 坐标1 } coordinate1 
+ * @param { 坐标2 } coordinate2 
+ * @param { 高度 } height 
+ * @param { 起始高度 } extrudedHeight 
+ * @param { 线性点数 } num 
+ */
 MyCesium.prototype.parabolaEquationByWGS84 = function (coordinate1, coordinate2, extrudedHeight, num, rate) {
     var options = {
         pt1: {

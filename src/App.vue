@@ -1,8 +1,8 @@
 <template>
   <div id="app">
-    <!-- <cesiumViewer></cesiumViewer> -->
+    <cesiumViewer></cesiumViewer>
     <!-- <helloWorld></helloWorld> -->
-    <glslCanvas></glslCanvas>
+    <!-- <glslCanvas></glslCanvas> -->
       <!-- <h1>{{$store.state.moduleUser.language}}</h1> -->
   </div>
 </template>
