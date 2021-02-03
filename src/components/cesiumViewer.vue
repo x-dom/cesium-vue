@@ -18,6 +18,8 @@ export default {
     data: () => {
         return {
             app: undefined,
+            tileset: undefined,
+            roadset: undefined,
             showLonLat: false,
             currentLonLat: [0,0,0]
         }
@@ -27,22 +29,40 @@ export default {
     },
     mounted () {
         console.log('挂载...');
-        if(!this.$data.app) {
-            this.$data.app = new AICesium(this.$refs.container, {targetFrameRate: 30});
-
-            window.tileset = this.$data.app.load3DTileSet('http://localhost:18080/beijing/tileset.json', true);
-            // console.log(tileset);
+        if(!this.app) {
+            this.app = new AICesium(this.$refs.container, {targetFrameRate: 30});
+        } else {
+            this.app.clear();
         }
-        let app = this.$data.app;
+        let app = this.app;
         window.viewer = app.viewer;
         app.initClock();
-        app.flyHome(Cesium.Cartesian3.fromDegrees(116.397335, 39.90743, 100));
+        // app.flyHome(Cesium.Cartesian3.fromDegrees(116.397335, 39.90743, 100));
         // app.lookAround(116.397335, 39.90743, 300, -45, 1, 500);
 
         //鼠标点击事件
         app.eventObj.on('click', (evt) => {
+            console.log(evt);
             let pixel = evt.position;
+            let origin = app.pixelToWorld3D(pixel);
+            // app.createComposeSymbolPoint(origin);
+            // app.addTracePosition(origin);
             console.log(app.pixelToWGS84(pixel));
+
+            let height = 100;
+            let heightProperty = new Cesium.SampledProperty(Number);
+            heightProperty.addSample(app.viewer.clock.currentTime,  0);
+            heightProperty.addSample(Cesium.JulianDate.addSeconds(app.viewer.clock.currentTime, 1, new Cesium.JulianDate()),  height);
+            heightProperty.addSample(Cesium.JulianDate.addDays(app.viewer.clock.currentTime, 1, new Cesium.JulianDate()),  height);
+            app.viewer.entities.add({
+                position: origin,
+                cylinder: {
+                    length: heightProperty,
+                    material: Cesium.Color.fromCssColorString('#00ff00'),
+                    topRadius: 5,
+                    bottomRadius: 5
+                }
+            });
         });
         //鼠标移动事件
         app.eventObj.on('mousemove', (evt) => {
@@ -51,6 +71,14 @@ export default {
             if(Cesium.defined(lonLatArr)) {
                 this.currentLonLat = lonLatArr;
             }
+        });
+
+        //加载三维建筑图层
+        // this.tileset = app.load3DTileSet('http://localhost:18080/beijing/tileset.json', true);
+
+        //加载路网图层
+        AICesium.loadGeoJson('http://localhost:18080/road_4m.geojson').then((dataSources) => {
+            this.roadset = app.loadPolylineOfDataSources(dataSources);
         });
     },
     updated () {

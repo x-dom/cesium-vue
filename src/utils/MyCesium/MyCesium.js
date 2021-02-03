@@ -1,9 +1,9 @@
-import 'cesium/Widgets/widgets.css';
-import Event from './event/Event'
+import 'cesium/Widgets/widgets.css'
+import Event from './utils/event/Event'
+import {loadPolylineForEntity, loadPolylineForPrimitives, loadPolylineForGroundPrimitives} from './utils/effect/line/Polyline'
+import {ComposeSymbolPoint} from './utils/effect/comp/ComposeSymbolPoint'
+import {Cesium} from './utils/CONST'
 
-const Cesium =  require('cesium/Cesium');
-// const Cesium =  require('../../../static/cesium/Cesium');
-window.Cesium = Cesium;
 /**
  * Cesium 二次封装
  * @author xiaoshuai
@@ -90,17 +90,21 @@ export default class MyCesium {
         // 解决瓦片地图偏灰问题
         this.viewer.scene.highDynamicRange = false;
         //底图默认暗色
-        // this.viewer.imageryLayers.get(1).brightness = 0.2;
+        this.viewer.imageryLayers.get(1).brightness = 0.2;
         //主页
         this.home = {};
         this.home.duration = 3;
-        this.home.destination = new Cesium.Cartesian3(-2183422.4735995145, 4387771.231407312, 4068697.2591815153);
+        this.home.destination = Cesium.Cartesian3.fromDegrees(116.397335, 39.90743, 100);
         this.home.orientation = {
             heading : 0.13331432556596035,
             pitch : -0.6460940450802517,
             roll : 0.0
         };
 
+        this.viewer.scene.camera.setView({
+            destination: this.home.destination, 
+            orientation: this.home.orientation
+        });
 
         /*****************注册事件********************/
         _this.eventObj = new Event();
@@ -114,11 +118,13 @@ export default class MyCesium {
 
         //单击事件
         handler.setInputAction((evt) => {
+            evt.feature = _this.viewer.scene.pick(evt.position);
             _this.eventObj.emit("click", evt);
         }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
         
         //双击事件
         handler.setInputAction((evt) => {
+            evt.feature = _this.viewer.scene.pick(evt.position);
             _this.eventObj.emit("dblclick", evt);
         }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
@@ -127,15 +133,25 @@ export default class MyCesium {
         handler.setInputAction((evt) => {
                 let targetFrameRate = _this.viewer.cesiumWidget._targetFrameRate;
                 targetFrameRate = !Cesium.defined(targetFrameRate)?10:targetFrameRate;
-                targetFrameRate = 30;
+                targetFrameRate = 10;
                 let frameTime = Date.now();
                 let interval = 1000.0 / targetFrameRate;
                 let delta = frameTime - lastFrameTime;
                 if (delta > interval) {
                     lastFrameTime = frameTime;
+                    // evt.feature = _this.viewer.scene.pick(evt.endPosition);//高耗资源
                     _this.eventObj.emit("mousemove", evt);
                 }
         }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+    }
+
+    clear() {
+        if(this.viewer) {
+            this.viewer.scene.groundPrimitives.removeAll();
+            this.viewer.scene.primitives.removeAll();
+            this.viewer.dataSources.removeAll();
+            this.viewer.entities.removeAll();
+        }
     }
 }
 
@@ -286,7 +302,48 @@ MyCesium.prototype.removeLookAround = function() {
  */
 MyCesium.prototype.load3DTileSet = function(url,show){
     var viewer = this.viewer;
-    var color = `vec4(0.0, 0.5, 1.0,1)`;
+    // var color = `vec4(0.0, 0.5, 1.0,1)`;
+    var color = 'vec4(0.2, 0.2, 0.2,1)';
+    var contentFS = '';
+    
+    //黑色基底,深蓝从底向上渐变
+    contentFS = `
+        gl_FragColor = vec4(0.0, 0.5, 1.0, 1.0);
+        float position3DZ = xs_positionMC.z;
+        float channelNum = position3DZ / 20.0;
+        float randomNum1 = fract(czm_frameNumber / 120.0) * 3.14159265 * 2.0;
+        channelNum += sin(randomNum1) * 0.2;
+        gl_FragColor *= vec4(channelNum, channelNum, channelNum, 1.0);
+
+        float randomNum2 = fract(czm_frameNumber / 360.0);
+        randomNum2 = abs(randomNum2 - 0.5) * 2.0;
+        float changeH = clamp(position3DZ / 300.0, 0.0, 1.0);
+        float changeDiff = step(0.005, abs(changeH - randomNum2));
+        gl_FragColor.rgb += gl_FragColor.rgb * (1.0 - changeDiff);
+    `;
+
+    //蓝色基底,灰白从底向上渐变
+    contentFS = `
+        gl_FragColor = vec4(0.2, 0.2, 0.2,1.0);
+        float position3DZ = xs_positionMC.z;
+        float channelNum1 = position3DZ/10.0;
+        float randomNum1 = fract(czm_frameNumber / 120.0) * 3.14159265 * 2.0;
+        channelNum1 += sin(randomNum1) * 0.2;
+        channelNum1 = channelNum1>.8?.8:channelNum1;
+        channelNum1 = 1.0 - channelNum1;
+        gl_FragColor.rgb += vec3(0.0, 0.0, channelNum1);
+
+        float channelNum2 = mod(position3DZ, 3.0);
+        channelNum2 = position3DZ/20.0;
+        gl_FragColor.rgb += vec3(channelNum2, channelNum2, channelNum2);
+
+        float randomNum2 = fract(czm_frameNumber / 720.0);
+        randomNum2 = abs(randomNum2 - 0.5) * 2.0;
+        float changeH = clamp(position3DZ / 200.0, 0.0, 1.0);
+        float changeDiff = step(0.005, abs(changeH - randomNum2));
+        gl_FragColor.rgb += gl_FragColor.rgb * (1.0 - changeDiff);
+    `;
+
     var tileset = viewer.scene.primitives.add(new Cesium.Cesium3DTileset({
         show: !!show,
         url: url,
@@ -295,39 +352,13 @@ MyCesium.prototype.load3DTileSet = function(url,show){
         headVS: ` varying vec3 xs_positionMC;`,
         contentVS: ` xs_positionMC = a_position.xyz;`,
         headFS: ` varying vec3 xs_positionMC;`,
-        contentFS: `
-            float position3DZ = xs_positionMC.z;
-            float randomNum1 = fract(czm_frameNumber / 120.0) * 3.14159265 * 2.0;
-            float channelNum = position3DZ / 20.0 + sin(randomNum1) * 0.2;
-            gl_FragColor *= vec4(channelNum, channelNum, channelNum, 1.0);
-
-            float randomNum2 = fract(czm_frameNumber / 360.0);
-            randomNum2 = abs(randomNum2 - 0.5) * 2.0;
-            float changeH = clamp(position3DZ / 300.0, 0.0, 1.0);
-            float changeDiff = step(0.005, abs(changeH - randomNum2));
-            gl_FragColor.rgb += gl_FragColor.rgb * (1.0 - changeDiff);
-        `,
+        contentFS: contentFS,
     }));
     tileset.style = new Cesium.Cesium3DTileStyle({
         color : color,
     });
 
     return tileset;
-};
-
-/**
- * 加载GeoJson数据
- * @param { 数据路径 } url 
- * @param { 加载后返回结果 } callBack 
- */
-MyCesium.prototype.loadGeoJson = function(url, callBack){
-    var promise = Cesium.GeoJsonDataSource.load(url);
-    promise.then((res) => {
-        callBack(res);
-    }).catch((e) => {
-        callBack([]);
-        console.error('加载数据异常',e)
-    });
 };
 
 /**
@@ -702,5 +733,67 @@ MyCesium.prototype.parabolaEquationByWGS84 = function (coordinate1, coordinate2,
     
     return result;
 };
+
+/**
+ * 加载性数据
+ * @param {*} dataSources 
+ * @param {*} options 
+ */
+MyCesium.prototype.loadPolylineOfDataSources = function(dataSources, options) {
+    let viewer = this.viewer;
+    let defoptions = {
+        type: 'groundpolyline',
+        width: 2.0,
+        color: '#7ac1ff'
+    }
+    options = {...defoptions, ...options};
+    if(options.type == 'entity') {
+        return loadPolylineForEntity(dataSources, viewer, options)
+    } else if(options.type == 'polyline') {
+        return loadPolylineForPrimitives(dataSources, viewer, options)
+    } else if(options.type == 'groundpolyline') {
+        return loadPolylineForGroundPrimitives(dataSources, viewer, options)
+    }
+};
+
+/**
+ * 相机跟踪点
+ * @param {*} position 
+ */
+MyCesium.prototype.addTracePosition = function(position) {
+    var heading = Cesium.Math.toRadians(50.0);
+    var pitch = Cesium.Math.toRadians(-20.0);
+    var range = 2000.0;
+    var transform = Cesium.Transforms.eastNorthUpToFixedFrame(position);
+    this.viewer.camera.lookAtTransform(transform, new Cesium.HeadingPitchRange(heading, pitch, range));
+};
+
+/**
+ * 创建组合标记点
+ * @param {*} options 
+ */
+MyCesium.prototype.createComposeSymbolPoint = function(origin, onClick, color = '#00FF00', radius = 100) {
+    let options = {
+        position: origin,
+        color: new Cesium.Color.fromCssColorString(color),
+        radius: radius,
+        slices: 6,
+        properties: {},
+        onClick: onClick
+    }
+
+    return  new ComposeSymbolPoint(this.viewer, options);
+}
+
+/**
+ * 加载远程GeoJson
+ * @param {*} url
+ */
+MyCesium.loadGeoJson = (url) => {
+    let promise = Cesium.GeoJsonDataSource.load(url);
+    return promise;
+};
+
+MyCesium.ComposeSymbolPoint = ComposeSymbolPoint
 
 export {Cesium};
